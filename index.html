@@ -110,6 +110,17 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        /* Zone tactile pour interactions */
+        #touch-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            touch-action: none;
+        }
     </style>
 </head>
 <body>
@@ -124,7 +135,7 @@
     <div id="instructions">
         <h3>🎯 TP Réalité Mixte</h3>
         <p>Pointez votre caméra vers le marqueur Hiro</p>
-        <p><strong>Touchez</strong> pour changer la couleur | <strong>Glissez</strong> pour tourner | <strong>Pincez</strong> pour agrandir</p>
+        <p><strong>Touchez</strong> = Couleur | <strong>Glissez</strong> = Rotation | <strong>Pincez</strong> = Taille</p>
     </div>
     
     <!-- Message d'erreur -->
@@ -133,6 +144,9 @@
         <p id="error-text"></p>
         <button onclick="retryCamera()">Réessayer</button>
     </div>
+    
+    <!-- Zone tactile pour interactions -->
+    <div id="touch-overlay"></div>
     
     <!-- Scène A-Frame avec AR.js -->
     <a-scene
@@ -146,14 +160,13 @@
         <!-- Marqueur Hiro (marqueur par défaut AR.js) -->
         <a-marker preset="hiro" id="marker">
             
-            <!-- Cube 3D interactif -->
+            <!-- Cube 3D interactif (SANS animation automatique) -->
             <a-box
                 id="cube"
                 position="0 0.5 0"
-                rotation="0 45 0"
+                rotation="0 0 0"
                 color="#FF6B6B"
                 scale="1 1 1"
-                animation="property: rotation; to: 0 405 0; loop: true; dur: 5000; easing: linear"
             ></a-box>
             
             <!-- Ombre sous le cube (effet visuel) -->
@@ -180,15 +193,12 @@
         
         let cameraRequested = false;
         
-        // Fonction pour demander l'accès caméra avec caméra arrière
         function setupCamera() {
             const loading = document.getElementById('loading');
             const errorMessage = document.getElementById('error-message');
             
-            // Détecter si on est sur mobile
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             
-            // Configuration pour forcer caméra arrière sur mobile
             const constraints = {
                 video: {
                     facingMode: isMobile ? { exact: "environment" } : "user",
@@ -200,14 +210,11 @@
             console.log('Configuration caméra:', constraints);
             console.log('Appareil mobile détecté:', isMobile);
             
-            // Demander accès caméra
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(stream => {
                     console.log('✅ Accès caméra accordé');
                     loading.style.display = 'none';
                     cameraRequested = true;
-                    
-                    // Arrêter le stream (AR.js va le redemander)
                     stream.getTracks().forEach(track => track.stop());
                 })
                 .catch(error => {
@@ -217,7 +224,6 @@
                 });
         }
         
-        // Afficher message d'erreur personnalisé
         function showError(error) {
             const errorMessage = document.getElementById('error-message');
             const errorText = document.getElementById('error-text');
@@ -248,7 +254,6 @@
                     Votre appareil ne supporte pas la caméra arrière demandée.<br>
                     Utilisation de la caméra frontale...
                 `;
-                // Réessayer avec caméra frontale
                 setTimeout(() => {
                     setupCameraFallback();
                 }, 2000);
@@ -265,7 +270,6 @@
             errorMessage.style.display = 'block';
         }
         
-        // Fallback : essayer avec caméra frontale si arrière échoue
         function setupCameraFallback() {
             const constraints = {
                 video: {
@@ -290,7 +294,6 @@
                 });
         }
         
-        // Réessayer l'accès caméra
         function retryCamera() {
             document.getElementById('error-message').style.display = 'none';
             document.getElementById('loading').style.display = 'block';
@@ -304,7 +307,6 @@
         window.addEventListener('load', function() {
             console.log('🚀 Application AR chargée');
             
-            // Attendre que A-Frame soit prêt
             const scene = document.querySelector('a-scene');
             
             if (scene.hasLoaded) {
@@ -314,11 +316,12 @@
             }
             
             // ========================================
-            // SCRIPT D'INTERACTIONS (INCHANGÉ)
+            // SCRIPT D'INTERACTIONS CORRIGÉ
             // ========================================
             
             const cube = document.querySelector('#cube');
             const marker = document.querySelector('#marker');
+            const touchOverlay = document.getElementById('touch-overlay');
             
             // Palette de couleurs
             const colors = [
@@ -329,35 +332,30 @@
             let currentColorIndex = 0;
             let touchStartX = 0;
             let touchStartY = 0;
-            let initialRotationY = 45;
+            let touchStartTime = 0;
+            let initialRotationY = 0;
             let initialScale = 1;
             let lastDistance = 0;
+            let isRotating = false;
+            let isPinching = false;
             
-            // INTERACTION 1 : CHANGEMENT DE COULEUR
-            scene.addEventListener('click', function(evt) {
-                if (marker && marker.object3D.visible) {
-                    currentColorIndex = (currentColorIndex + 1) % colors.length;
-                    cube.setAttribute('color', colors[currentColorIndex]);
-                    
-                    cube.setAttribute('animation__pulse', {
-                        property: 'scale',
-                        to: '1.2 1.2 1.2',
-                        dur: 200,
-                        direction: 'alternate',
-                        easing: 'easeInOutQuad'
-                    });
-                    
-                    console.log('Couleur changée : ' + colors[currentColorIndex]);
-                }
-            });
+            // ========================================
+            // INTERACTION 1 : CHANGEMENT DE COULEUR (TAP SIMPLE)
+            // ========================================
             
-            // INTERACTION 2 : ROTATION PAR GLISSEMENT
-            scene.addEventListener('touchstart', function(evt) {
-                if (evt.touches.length === 1 && marker.object3D.visible) {
-                    touchStartX = evt.touches[0].clientX;
+            touchOverlay.addEventListener('touchstart', function(evt) {
+                touchStartTime = Date.now();
+                touchStartX = evt.touches[0].clientX;
+                touchStartY = evt.touches[0].clientY;
+                
+                if (evt.touches.length === 1) {
+                    // Un doigt - préparer rotation
                     const rotation = cube.getAttribute('rotation');
                     initialRotationY = rotation.y;
-                } else if (evt.touches.length === 2 && marker.object3D.visible) {
+                    isRotating = false;
+                } else if (evt.touches.length === 2) {
+                    // Deux doigts - scale
+                    isPinching = true;
                     const touch1 = evt.touches[0];
                     const touch2 = evt.touches[1];
                     lastDistance = Math.hypot(
@@ -369,20 +367,32 @@
                 }
             });
             
-            scene.addEventListener('touchmove', function(evt) {
-                if (evt.touches.length === 1 && marker.object3D.visible) {
+            touchOverlay.addEventListener('touchmove', function(evt) {
+                evt.preventDefault();
+                
+                if (!marker.object3D.visible) return;
+                
+                if (evt.touches.length === 1 && !isPinching) {
+                    // Rotation si mouvement significatif
                     const deltaX = evt.touches[0].clientX - touchStartX;
-                    const rotationSpeed = 0.5;
-                    const newRotationY = initialRotationY + (deltaX * rotationSpeed);
+                    const deltaY = evt.touches[0].clientY - touchStartY;
+                    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
                     
-                    cube.setAttribute('rotation', {
-                        x: 0,
-                        y: newRotationY,
-                        z: 0
-                    });
-                    
-                    cube.removeAttribute('animation');
-                } else if (evt.touches.length === 2 && marker.object3D.visible) {
+                    if (distance > 10) { // Seuil de 10px pour considérer comme rotation
+                        isRotating = true;
+                        const rotationSpeed = 0.5;
+                        const newRotationY = initialRotationY + (deltaX * rotationSpeed);
+                        
+                        cube.setAttribute('rotation', {
+                            x: 0,
+                            y: newRotationY,
+                            z: 0
+                        });
+                        
+                        console.log('Rotation Y:', newRotationY.toFixed(1));
+                    }
+                } else if (evt.touches.length === 2 && isPinching) {
+                    // Scale
                     const touch1 = evt.touches[0];
                     const touch2 = evt.touches[1];
                     
@@ -400,36 +410,63 @@
                         y: newScale,
                         z: newScale
                     });
+                    
+                    console.log('Scale:', newScale.toFixed(2));
                 }
             });
             
-            scene.addEventListener('touchend', function(evt) {
-                if (evt.touches.length === 0) {
-                    const currentRotation = cube.getAttribute('rotation');
+            touchOverlay.addEventListener('touchend', function(evt) {
+                if (!marker.object3D.visible) return;
+                
+                // Si c'était un tap rapide (< 200ms) et sans mouvement = changement de couleur
+                const touchDuration = Date.now() - touchStartTime;
+                
+                if (!isRotating && !isPinching && touchDuration < 300 && evt.touches.length === 0) {
+                    // Changement de couleur
+                    currentColorIndex = (currentColorIndex + 1) % colors.length;
+                    cube.setAttribute('color', colors[currentColorIndex]);
+                    
+                    // Animation de pulse
+                    const currentScale = cube.getAttribute('scale');
                     cube.setAttribute('animation', {
-                        property: 'rotation',
-                        to: `0 ${currentRotation.y + 360} 0`,
-                        loop: true,
-                        dur: 5000,
-                        easing: 'linear'
+                        property: 'scale',
+                        from: `${currentScale.x} ${currentScale.y} ${currentScale.z}`,
+                        to: `${currentScale.x * 1.2} ${currentScale.y * 1.2} ${currentScale.z * 1.2}`,
+                        dur: 150,
+                        direction: 'alternate',
+                        easing: 'easeInOutQuad',
+                        loop: 1
                     });
+                    
+                    console.log('✨ Couleur changée:', colors[currentColorIndex]);
                 }
+                
+                // Reset états
+                isRotating = false;
+                isPinching = false;
             });
             
+            // ========================================
             // FEEDBACK VISUEL DÉTECTION MARQUEUR
+            // ========================================
+            
             marker.addEventListener('markerFound', function() {
                 console.log('✅ Marqueur détecté !');
                 const instructions = document.querySelector('#instructions');
                 instructions.style.backgroundColor = 'rgba(0, 128, 0, 0.8)';
                 instructions.querySelector('h3').textContent = '✅ Marqueur détecté !';
+                instructions.querySelector('p').innerHTML = '<strong>Touchez</strong> = Couleur | <strong>Glissez</strong> = Rotation | <strong>Pincez</strong> = Taille';
             });
             
             marker.addEventListener('markerLost', function() {
                 console.log('❌ Marqueur perdu');
                 const instructions = document.querySelector('#instructions');
                 instructions.style.backgroundColor = 'rgba(220, 53, 69, 0.8)';
-                instructions.querySelector('h3').textContent = '❌ Marqueur perdu - Repositionnez';
+                instructions.querySelector('h3').textContent = '❌ Marqueur perdu';
+                instructions.querySelector('p').textContent = 'Repositionnez le marqueur devant la caméra';
             });
+            
+            console.log('✅ Interactions configurées');
         });
     </script>
     
