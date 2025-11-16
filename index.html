@@ -13,6 +13,7 @@
         body {
             margin: 0;
             overflow: hidden;
+            font-family: Arial, sans-serif;
         }
         
         /* Message d'instructions */
@@ -21,35 +22,116 @@
             top: 10px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.8);
             color: white;
             padding: 15px 25px;
             border-radius: 10px;
-            font-family: Arial, sans-serif;
             font-size: 14px;
             text-align: center;
             z-index: 1000;
             max-width: 90%;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
         
         #instructions h3 {
             margin: 0 0 10px 0;
-            font-size: 16px;
+            font-size: 18px;
         }
         
         #instructions p {
             margin: 5px 0;
             font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        /* Message d'erreur */
+        #error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 53, 69, 0.95);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 2000;
+            max-width: 80%;
+            display: none;
+        }
+        
+        #error-message h3 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+        }
+        
+        #error-message p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        #error-message button {
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: white;
+            color: #dc3545;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        /* Indicateur de chargement */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 1500;
+        }
+        
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
     
+    <!-- Indicateur de chargement -->
+    <div id="loading">
+        <div class="spinner"></div>
+        <p>Chargement de la caméra...</p>
+    </div>
+    
     <!-- Instructions à l'écran -->
     <div id="instructions">
         <h3>🎯 TP Réalité Mixte</h3>
         <p>Pointez votre caméra vers le marqueur Hiro</p>
-        <p>Touchez pour changer la couleur | Glissez pour tourner | Pincez pour agrandir</p>
+        <p><strong>Touchez</strong> pour changer la couleur | <strong>Glissez</strong> pour tourner | <strong>Pincez</strong> pour agrandir</p>
+    </div>
+    
+    <!-- Message d'erreur -->
+    <div id="error-message">
+        <h3>⚠️ Erreur d'Accès Caméra</h3>
+        <p id="error-text"></p>
+        <button onclick="retryCamera()">Réessayer</button>
     </div>
     
     <!-- Scène A-Frame avec AR.js -->
@@ -58,6 +140,7 @@
         arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
         vr-mode-ui="enabled: false"
         renderer="logarithmicDepthBuffer: true; precision: medium;"
+        id="scene"
     >
         
         <!-- Marqueur Hiro (marqueur par défaut AR.js) -->
@@ -92,49 +175,170 @@
     
     <script>
         // ========================================
-        // SCRIPT D'INTERACTIONS
+        // GESTION AMÉLIORÉE DE LA CAMÉRA
         // ========================================
         
-        // Attendre que la scène soit chargée
+        let cameraRequested = false;
+        
+        // Fonction pour demander l'accès caméra avec caméra arrière
+        function setupCamera() {
+            const loading = document.getElementById('loading');
+            const errorMessage = document.getElementById('error-message');
+            
+            // Détecter si on est sur mobile
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            
+            // Configuration pour forcer caméra arrière sur mobile
+            const constraints = {
+                video: {
+                    facingMode: isMobile ? { exact: "environment" } : "user",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
+            
+            console.log('Configuration caméra:', constraints);
+            console.log('Appareil mobile détecté:', isMobile);
+            
+            // Demander accès caméra
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => {
+                    console.log('✅ Accès caméra accordé');
+                    loading.style.display = 'none';
+                    cameraRequested = true;
+                    
+                    // Arrêter le stream (AR.js va le redemander)
+                    stream.getTracks().forEach(track => track.stop());
+                })
+                .catch(error => {
+                    console.error('❌ Erreur caméra:', error);
+                    loading.style.display = 'none';
+                    showError(error);
+                });
+        }
+        
+        // Afficher message d'erreur personnalisé
+        function showError(error) {
+            const errorMessage = document.getElementById('error-message');
+            const errorText = document.getElementById('error-text');
+            
+            let message = '';
+            
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                message = `
+                    <strong>Permission refusée</strong><br><br>
+                    Veuillez autoriser l'accès à la caméra :<br>
+                    1. Cliquez sur l'icône 🔒 dans la barre d'adresse<br>
+                    2. Activez "Caméra"<br>
+                    3. Rechargez la page
+                `;
+            } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+                message = `
+                    <strong>Aucune caméra détectée</strong><br><br>
+                    Vérifiez que votre appareil possède une caméra fonctionnelle.
+                `;
+            } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+                message = `
+                    <strong>Caméra déjà utilisée</strong><br><br>
+                    Fermez les autres applications utilisant la caméra et réessayez.
+                `;
+            } else if (error.name === 'OverconstrainedError') {
+                message = `
+                    <strong>Configuration caméra non supportée</strong><br><br>
+                    Votre appareil ne supporte pas la caméra arrière demandée.<br>
+                    Utilisation de la caméra frontale...
+                `;
+                // Réessayer avec caméra frontale
+                setTimeout(() => {
+                    setupCameraFallback();
+                }, 2000);
+                return;
+            } else {
+                message = `
+                    <strong>Erreur inconnue</strong><br><br>
+                    ${error.message}<br><br>
+                    Assurez-vous d'utiliser HTTPS.
+                `;
+            }
+            
+            errorText.innerHTML = message;
+            errorMessage.style.display = 'block';
+        }
+        
+        // Fallback : essayer avec caméra frontale si arrière échoue
+        function setupCameraFallback() {
+            const constraints = {
+                video: {
+                    facingMode: "user",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
+            
+            console.log('⚠️ Tentative avec caméra frontale...');
+            
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => {
+                    console.log('✅ Caméra frontale activée');
+                    document.getElementById('error-message').style.display = 'none';
+                    document.getElementById('loading').style.display = 'none';
+                    stream.getTracks().forEach(track => track.stop());
+                })
+                .catch(error => {
+                    console.error('❌ Échec caméra frontale:', error);
+                    showError(error);
+                });
+        }
+        
+        // Réessayer l'accès caméra
+        function retryCamera() {
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+            setTimeout(setupCamera, 500);
+        }
+        
+        // ========================================
+        // INITIALISATION
+        // ========================================
+        
         window.addEventListener('load', function() {
+            console.log('🚀 Application AR chargée');
+            
+            // Attendre que A-Frame soit prêt
+            const scene = document.querySelector('a-scene');
+            
+            if (scene.hasLoaded) {
+                setupCamera();
+            } else {
+                scene.addEventListener('loaded', setupCamera);
+            }
+            
+            // ========================================
+            // SCRIPT D'INTERACTIONS (INCHANGÉ)
+            // ========================================
             
             const cube = document.querySelector('#cube');
-            const scene = document.querySelector('a-scene');
             const marker = document.querySelector('#marker');
             
-            // Palette de couleurs pour changement aléatoire
+            // Palette de couleurs
             const colors = [
-                '#FF6B6B', // Rouge
-                '#4ECDC4', // Cyan
-                '#45B7D1', // Bleu
-                '#FFA07A', // Orange
-                '#98D8C8', // Vert menthe
-                '#F7DC6F', // Jaune
-                '#BB8FCE', // Violet
-                '#85C1E2'  // Bleu clair
+                '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
+                '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'
             ];
             
             let currentColorIndex = 0;
-            
-            // Variables pour les interactions tactiles
             let touchStartX = 0;
             let touchStartY = 0;
             let initialRotationY = 45;
             let initialScale = 1;
             let lastDistance = 0;
             
-            // ========================================
             // INTERACTION 1 : CHANGEMENT DE COULEUR
-            // ========================================
-            
-            // Détection du toucher simple
             scene.addEventListener('click', function(evt) {
-                if (marker.object3D.visible) {
-                    // Changer la couleur du cube
+                if (marker && marker.object3D.visible) {
                     currentColorIndex = (currentColorIndex + 1) % colors.length;
                     cube.setAttribute('color', colors[currentColorIndex]);
                     
-                    // Animation de "pulse" pour feedback visuel
                     cube.setAttribute('animation__pulse', {
                         property: 'scale',
                         to: '1.2 1.2 1.2',
@@ -147,46 +351,60 @@
                 }
             });
             
-            // ========================================
             // INTERACTION 2 : ROTATION PAR GLISSEMENT
-            // ========================================
-            
             scene.addEventListener('touchstart', function(evt) {
                 if (evt.touches.length === 1 && marker.object3D.visible) {
-                    // Un seul doigt = rotation
                     touchStartX = evt.touches[0].clientX;
-                    touchStartY = evt.touches[0].clientY;
-                    
-                    // Récupérer la rotation actuelle
                     const rotation = cube.getAttribute('rotation');
                     initialRotationY = rotation.y;
+                } else if (evt.touches.length === 2 && marker.object3D.visible) {
+                    const touch1 = evt.touches[0];
+                    const touch2 = evt.touches[1];
+                    lastDistance = Math.hypot(
+                        touch2.clientX - touch1.clientX,
+                        touch2.clientY - touch1.clientY
+                    );
+                    const scale = cube.getAttribute('scale');
+                    initialScale = scale.x;
                 }
             });
             
             scene.addEventListener('touchmove', function(evt) {
                 if (evt.touches.length === 1 && marker.object3D.visible) {
-                    // Calculer le déplacement horizontal
                     const deltaX = evt.touches[0].clientX - touchStartX;
-                    
-                    // Convertir en rotation (sensibilité ajustable)
                     const rotationSpeed = 0.5;
                     const newRotationY = initialRotationY + (deltaX * rotationSpeed);
                     
-                    // Appliquer la rotation
                     cube.setAttribute('rotation', {
                         x: 0,
                         y: newRotationY,
                         z: 0
                     });
                     
-                    // Désactiver l'animation automatique pendant manipulation
                     cube.removeAttribute('animation');
+                } else if (evt.touches.length === 2 && marker.object3D.visible) {
+                    const touch1 = evt.touches[0];
+                    const touch2 = evt.touches[1];
+                    
+                    const currentDistance = Math.hypot(
+                        touch2.clientX - touch1.clientX,
+                        touch2.clientY - touch1.clientY
+                    );
+                    
+                    const scaleChange = currentDistance / lastDistance;
+                    let newScale = initialScale * scaleChange;
+                    newScale = Math.max(0.5, Math.min(newScale, 3));
+                    
+                    cube.setAttribute('scale', {
+                        x: newScale,
+                        y: newScale,
+                        z: newScale
+                    });
                 }
             });
             
             scene.addEventListener('touchend', function(evt) {
                 if (evt.touches.length === 0) {
-                    // Réactiver l'animation automatique
                     const currentRotation = cube.getAttribute('rotation');
                     cube.setAttribute('animation', {
                         property: 'rotation',
@@ -198,73 +416,20 @@
                 }
             });
             
-            // ========================================
-            // INTERACTION 3 : SCALE PAR PINCEMENT
-            // ========================================
-            
-            scene.addEventListener('touchstart', function(evt) {
-                if (evt.touches.length === 2 && marker.object3D.visible) {
-                    // Deux doigts = scale
-                    const touch1 = evt.touches[0];
-                    const touch2 = evt.touches[1];
-                    
-                    // Calculer la distance initiale entre les deux doigts
-                    lastDistance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                    );
-                    
-                    // Récupérer le scale actuel
-                    const scale = cube.getAttribute('scale');
-                    initialScale = scale.x;
-                }
-            });
-            
-            scene.addEventListener('touchmove', function(evt) {
-                if (evt.touches.length === 2 && marker.object3D.visible) {
-                    const touch1 = evt.touches[0];
-                    const touch2 = evt.touches[1];
-                    
-                    // Calculer la nouvelle distance
-                    const currentDistance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                    );
-                    
-                    // Calculer le ratio de changement
-                    const scaleChange = currentDistance / lastDistance;
-                    
-                    // Appliquer le nouveau scale (avec limites min/max)
-                    let newScale = initialScale * scaleChange;
-                    newScale = Math.max(0.5, Math.min(newScale, 3)); // Entre 0.5 et 3
-                    
-                    cube.setAttribute('scale', {
-                        x: newScale,
-                        y: newScale,
-                        z: newScale
-                    });
-                    
-                    console.log('Scale : ' + newScale.toFixed(2));
-                }
-            });
-            
-            // ========================================
             // FEEDBACK VISUEL DÉTECTION MARQUEUR
-            // ========================================
-            
             marker.addEventListener('markerFound', function() {
                 console.log('✅ Marqueur détecté !');
-                document.querySelector('#instructions').style.backgroundColor = 'rgba(0, 128, 0, 0.7)';
-                document.querySelector('#instructions h3').textContent = '✅ Marqueur détecté !';
+                const instructions = document.querySelector('#instructions');
+                instructions.style.backgroundColor = 'rgba(0, 128, 0, 0.8)';
+                instructions.querySelector('h3').textContent = '✅ Marqueur détecté !';
             });
             
             marker.addEventListener('markerLost', function() {
                 console.log('❌ Marqueur perdu');
-                document.querySelector('#instructions').style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
-                document.querySelector('#instructions h3').textContent = '❌ Marqueur perdu - Repositionnez';
+                const instructions = document.querySelector('#instructions');
+                instructions.style.backgroundColor = 'rgba(220, 53, 69, 0.8)';
+                instructions.querySelector('h3').textContent = '❌ Marqueur perdu - Repositionnez';
             });
-            
-            console.log('🚀 Application AR chargée avec succès !');
         });
     </script>
     
