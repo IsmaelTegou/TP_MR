@@ -167,16 +167,18 @@
                 rotation="0 0 0"
                 color="#FF6B6B"
                 scale="1 1 1"
+                material="transparent: false; opacity: 1"
             ></a-box>
             
-            <!-- Ombre sous le cube (effet visuel) -->
+            <!-- Ombre sous le cube (effet visuel) - Position ajustée -->
             <a-plane
-                position="0 0 0"
+                position="0 -0.01 0"
                 rotation="-90 0 0"
-                width="2"
-                height="2"
+                width="1.5"
+                height="1.5"
                 color="#7BC8A4"
-                opacity="0.5"
+                opacity="0.3"
+                material="transparent: true; side: double"
             ></a-plane>
             
         </a-marker>
